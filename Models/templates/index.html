@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Heart Disease Prediction</title>
+</head>
+<body>
+    <h2>Heart Disease Prediction Form</h2>
+    <form action="/predict" method="post">
+        {% for i in range(13) %} <!-- replace 13 with number of features -->
+        <label>Feature {{ i+1 }}:</label>
+        <input type="text" name="f{{ i }}" required><br>
+        {% endfor %}
+        <button type="submit">Predict</button>
+    </form>
+
+    {% if prediction %}
+    <h3>Prediction: {{ prediction }}</h3>
+    {% endif %}
+</body>
+</html>
