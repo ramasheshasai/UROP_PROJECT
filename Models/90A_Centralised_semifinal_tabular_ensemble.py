@@ -1,4 +1,3 @@
-# File: 12_final_ensemble_powerboost.py
 
 import pandas as pd
 import numpy as np
@@ -61,8 +60,8 @@ meta_model = RidgeClassifier()
 meta_model.fit(train_meta, y_train)
 stack_pred = meta_model.predict(test_meta)
 
-# ==============================
-# 5️⃣ Evaluate
+## ==============================
+# 5️⃣ Evaluate + Save Results
 # ==============================
 acc = accuracy_score(y_test, stack_pred)
 report = classification_report(y_test, stack_pred)
@@ -70,6 +69,17 @@ report = classification_report(y_test, stack_pred)
 print("Power Boost Ensemble Accuracy:", acc)
 print("\nClassification Report:\n", report)
 
-with open("results/power_ensemble_report.txt", "w") as f:
+# Create the nested results folder if it doesn't exist
+import os
+
+# ✅ Full absolute path
+folder_path = r"C:\Users\InduS\OneDrive\Desktop\UROP Project\Project-Test-1\HeartDisease\results\centralised"
+os.makedirs(folder_path, exist_ok=True)
+
+output_path = os.path.join(folder_path, "power_ensemble_report.txt")
+with open(output_path, "w") as f:
     f.write(f"Power Boost Ensemble Accuracy: {acc}\n\n")
     f.write(report)
+
+print(f"\nResults saved successfully at: {output_path}")
+

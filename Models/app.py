@@ -36,7 +36,7 @@ scaler = StandardScaler()
 # 2️⃣ Function to train ensemble
 # ==============================
 # Load and prepare dataset to train inside Flask (or load pre-trained models)
-df = pd.read_csv("Dataset/processed.cleveland.data", header=None)
+df = pd.read_csv("../Dataset/processed.cleveland.data", header=None)
 df.replace('?', pd.NA, inplace=True)
 df = df.dropna().apply(pd.to_numeric)
 
