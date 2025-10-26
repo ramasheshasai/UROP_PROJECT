@@ -1,4 +1,4 @@
-# federated_heart_fedavg.py
+
 import os
 import random
 import numpy as np

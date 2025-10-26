@@ -1,23 +1,48 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>Heart Disease Prediction</title>
+    <meta charset="UTF-8">
+    <title>Heart Disease Prediction Dashboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
-    <h2>Heart Disease Prediction Form</h2>
-    <form action="/predict" method="post">
-        {% for i in range(13) %} <!-- replace 13 with number of features -->
-        <label>Feature {{ i+1 }}:</label>
-        <input type="text" name="f{{ i }}" required><br>
-        {% endfor %}
-        <button type="submit">Predict</button>
-    </form>
+    <div class="container">
+        <h1>💓 Heart Disease Prediction - Model Comparison</h1>
 
+        <div class="accuracy-cards">
+            <div class="card">
+                <h2>Centralised Model</h2>
+                <p class="acc">{{ "%.2f"|format(central_acc * 100 if central_acc else 0) }}%</p>
+                <a href="{{ url_for('download_file', filename=central_report) }}" class="btn">Download Report</a>
+            </div>
 
-    
+            <div class="card">
+                <h2>Federated Model</h2>
+                <p class="acc">{{ "%.2f"|format(federated_acc * 100 if federated_acc else 0) }}%</p>
+                <a href="{{ url_for('download_file', filename=federated_report) }}" class="btn">Download Report</a>
+            </div>
+        </div>
 
-    {% if prediction %}
-    <h3>Prediction: {{ prediction }}</h3>
-    {% endif %}
+        <h2>📊 Accuracy Comparison</h2>
+        <div class="chart">
+            <img src="{{ url_for('static', filename='results_comparison.png') }}" alt="Comparison Chart">
+        </div>
+
+        <h2>🧩 SHAP Interpretability</h2>
+        <div class="shap-container">
+            <div class="shap">
+                <h3>Centralised Model</h3>
+                <img src="{{ url_for('static', filename='centralised_shap_summary.png') }}" alt="Centralised SHAP">
+            </div>
+            <div class="shap">
+                <h3>Federated Model</h3>
+                <img src="{{ url_for('static', filename='federated_shap_summary.png') }}" alt="Federated SHAP">
+            </div>
+        </div>
+
+        <footer>
+            <p>Developed for UROP Project | Flask + ML + SHAP Integration</p>
+        </footer>
+    </div>
 </body>
 </html>
