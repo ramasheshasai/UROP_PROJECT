@@ -1,4 +1,3 @@
-
 import os
 import random
 import numpy as np
@@ -6,67 +5,94 @@ import pandas as pd
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import accuracy_score, classification_report
 from sklearn.model_selection import train_test_split
+from sklearn.impute import SimpleImputer
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from collections import defaultdict
 
+# ==============================
+# 1️⃣ Setup
+# ==============================
 SEED = 42
 torch.manual_seed(SEED)
 np.random.seed(SEED)
 random.seed(SEED)
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# ---------- Load & preprocess (adapt path if needed) ----------
-df = pd.read_csv("Dataset/processed.cleveland.data", header=None)
-df.replace('?', pd.NA, inplace=True)
-df = df.dropna().apply(pd.to_numeric)
-X = df.iloc[:, :-1].values
-y = (df.iloc[:, -1] > 0).astype(int).values
+# ==============================
+# 2️⃣ Load & preprocess datasets
+# ==============================
+paths = {
+    "cleveland": "Dataset/processed.cleveland.data",
+    "hungarian": "Dataset/processed.hungarian.data",
+    "switzerland": "Dataset/processed.switzerland.data",
+    "va": "Dataset/processed.va.data"
+}
 
-scaler = StandardScaler()
-X = scaler.fit_transform(X)
+clients_data = {}
+for name, path in paths.items():
+    df = pd.read_csv(path, header=None)
+    df.replace('?', np.nan, inplace=True)
+    
+    # ✅ Impute missing numeric values with median instead of dropping
+    imputer = SimpleImputer(strategy="median")
+    df = pd.DataFrame(imputer.fit_transform(df))
+    
+    if len(df) < 5:
+        print(f"Skipping {name}: only {len(df)} usable rows.")
+        continue
+    
+    X = df.iloc[:, :-1].values
+    y = (df.iloc[:, -1] > 0).astype(int).values
+    clients_data[name] = (X, y)
+    print(f"Loaded {name} dataset with {len(y)} samples.")
 
-# train/test global split (held-out test to evaluate federated global model)
-X_trainval, X_test, y_trainval, y_test = train_test_split(
-    X, y, test_size=0.2, random_state=SEED, stratify=y
-)
+# Ensure at least 2 datasets exist
+if len(clients_data) < 2:
+    raise ValueError("Not enough valid datasets for federated training!")
 
-# ---------- Partition into 4 clients using Dirichlet (non-iid) ----------
-def dirichlet_partition(y, n_clients=4, alpha=0.5):
-    classes = np.unique(y)
-    client_idx = [[] for _ in range(n_clients)]
-    for c in classes:
-        idx_c = np.where(y == c)[0]
-        np.random.shuffle(idx_c)
-        proportions = np.random.dirichlet(alpha=np.repeat(alpha, n_clients))
-        # scale proportions to number of items
-        counts = (proportions * len(idx_c)).astype(int)
-        # fix rounding issues
-        while counts.sum() < len(idx_c):
-            counts[np.argmax(proportions)] += 1
-        ptr = 0
-        for i in range(n_clients):
-            ccount = counts[i]
-            if ccount > 0:
-                client_idx[i].extend(idx_c[ptr:ptr+ccount].tolist())
-                ptr += ccount
-    return client_idx
+# ==============================
+# 3️⃣ Scale data + create global test set
+# ==============================
+for key in clients_data:
+    X, y = clients_data[key]
+    scaler = StandardScaler()
+    X = scaler.fit_transform(X)
+    clients_data[key] = (X, y)
 
-n_clients = 4
-client_indices = dirichlet_partition(y_trainval, n_clients=n_clients, alpha=0.3)
+X_train_clients, y_train_clients = [], []
+X_test_global, y_test_global = [], []
 
-# ---------- PyTorch dataset helper ----------
+for key, (X, y) in clients_data.items():
+    if len(y) >= 10:
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y, test_size=0.2, random_state=SEED, stratify=y
+        )
+    else:
+        # Small dataset → all samples go to training
+        X_train, y_train = X, y
+        X_test, y_test = np.empty((0, X.shape[1])), np.empty((0,))
+    X_train_clients.append(X_train)
+    y_train_clients.append(y_train)
+    X_test_global.append(X_test)
+    y_test_global.append(y_test)
+
+# Combine all global test data
+X_test_global = np.concatenate(X_test_global) if any(len(x) for x in X_test_global) else np.empty((0,))
+y_test_global = np.concatenate(y_test_global) if any(len(y) for y in y_test_global) else np.empty((0,))
+
+# ==============================
+# 4️⃣ Dataset + Model Definitions
+# ==============================
 class SimpleDataset(torch.utils.data.Dataset):
-    def __init__(self, X, y, idxs):
-        self.X = torch.from_numpy(X[idxs]).float()
-        self.y = torch.from_numpy(y[idxs]).long()
+    def __init__(self, X, y):
+        self.X = torch.from_numpy(X).float()
+        self.y = torch.from_numpy(y).long()
     def __len__(self):
         return len(self.y)
     def __getitem__(self, i):
         return self.X[i], self.y[i]
 
-# ---------- Simple MLP model ----------
 class MLP(nn.Module):
     def __init__(self, inp):
         super().__init__()
@@ -81,7 +107,9 @@ class MLP(nn.Module):
     def forward(self, x):
         return self.net(x)
 
-# ---------- Federated training utils ----------
+# ==============================
+# 5️⃣ Federated Utils
+# ==============================
 def get_model_params(model):
     return {k: v.cpu().detach().clone() for k, v in model.state_dict().items()}
 
@@ -92,10 +120,9 @@ def average_models(state_dicts, weights=None):
     avg = {}
     n = len(state_dicts)
     if weights is None:
-        
-        weights = [1.0/n]*n
+        weights = [1.0 / n] * n
     for k in state_dicts[0].keys():
-        avg[k] = sum([state_dicts[i][k].float()*weights[i] for i in range(n)])
+        avg[k] = sum([state_dicts[i][k].float() * weights[i] for i in range(n)])
     return avg
 
 def local_train(model, dataloader, epochs=3, lr=1e-3):
@@ -112,52 +139,63 @@ def local_train(model, dataloader, epochs=3, lr=1e-3):
             opt.step()
     return model
 
-# ---------- Federated loop ----------
-input_dim = X_trainval.shape[1]
+# ==============================
+# 6️⃣ Federated Training
+# ==============================
+input_dim = next(iter(clients_data.values()))[0].shape[1]
 global_model = MLP(input_dim).to(DEVICE)
+
 rounds = 40
 local_epochs = 3
 batch_size = 16
 
-# Pre-create dataloaders for clients
 client_loaders = []
 client_sizes = []
-for idxs in client_indices:
-    ds = SimpleDataset(X_trainval, y_trainval, idxs)
-    client_sizes.append(len(ds))
+for key, (X_train, y_train) in clients_data.items():
+    ds = SimpleDataset(X_train, y_train)
     loader = torch.utils.data.DataLoader(ds, batch_size=batch_size, shuffle=True)
     client_loaders.append(loader)
+    client_sizes.append(len(ds))
 
-for r in range(1, rounds+1):
+print("\nStarting Federated Training...\n")
+
+for r in range(1, rounds + 1):
     local_states = []
-    # each client trains locally
-    for i in range(n_clients):
-        client_model = MLP(input_dim).to(DEVICE)
-        set_model_params(client_model, get_model_params(global_model))
-        client_model = local_train(client_model, client_loaders[i], epochs=local_epochs, lr=1e-3)
-        local_states.append(get_model_params(client_model))
-    # FedAvg weighted by number of samples
-    weights = [s/ sum(client_sizes) for s in client_sizes]
+    for i, loader in enumerate(client_loaders):
+        local_model = MLP(input_dim).to(DEVICE)
+        set_model_params(local_model, get_model_params(global_model))
+        local_model = local_train(local_model, loader, epochs=local_epochs, lr=1e-3)
+        local_states.append(get_model_params(local_model))
+
+    weights = [s / sum(client_sizes) for s in client_sizes]
     avg_state = average_models(local_states, weights=weights)
     set_model_params(global_model, avg_state)
+
     if r % 5 == 0 or r == 1:
         global_model.eval()
         with torch.no_grad():
-            Xte = torch.from_numpy(X_test).float().to(DEVICE)
-            logits = global_model(Xte)
-            preds = logits.argmax(dim=1).cpu().numpy()
-            acc = accuracy_score(y_test, preds)
-            print(f"Round {r:02d}  Global test accuracy: {acc:.4f}")
+            if len(X_test_global) > 0:
+                Xte = torch.from_numpy(X_test_global).float().to(DEVICE)
+                logits = global_model(Xte)
+                preds = logits.argmax(dim=1).cpu().numpy()
+                acc = accuracy_score(y_test_global, preds)
+                print(f"Round {r:02d} - Global Test Accuracy: {acc:.4f}")
+            else:
+                print(f"Round {r:02d} - (No global test samples available)")
 
-# ---------- Save results to absolute path ----------
+# ==============================
+# 7️⃣ Save Results
+# ==============================
 save_path = r"C:\Users\InduS\OneDrive\Desktop\UROP Project\Project-Test-1\HeartDisease\results\federated"
 os.makedirs(save_path, exist_ok=True)
+output_file = os.path.join(save_path, "federated_global_imputed_all_datasets_report.txt")
 
-output_file = os.path.join(save_path, "federated_global_model_report.txt")
+with open(output_file, "w", encoding="utf-8") as f:
+    if len(X_test_global) > 0:
+        f.write(f"Final Global Model Accuracy: {acc:.4f}\n\n")
+        f.write("Classification Report:\n")
+        f.write(classification_report(y_test_global, preds))
+    else:
+        f.write("No global test data available for evaluation.\n")
 
-with open(output_file, "w") as f:
-    f.write(f"Final Global Model Accuracy: {acc:.4f}\n\n")
-    f.write("Classification Report:\n")
-    f.write(classification_report(y_test, preds))
-
-print(f"\nResults saved successfully at: {output_file}")
+print(f"\n Results saved successfully at: {output_file}")
