@@ -92,6 +92,7 @@ def average_models(state_dicts, weights=None):
     avg = {}
     n = len(state_dicts)
     if weights is None:
+        
         weights = [1.0/n]*n
     for k in state_dicts[0].keys():
         avg[k] = sum([state_dicts[i][k].float()*weights[i] for i in range(n)])
