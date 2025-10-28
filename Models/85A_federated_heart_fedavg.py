@@ -9,6 +9,8 @@ from sklearn.impute import SimpleImputer
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import shap
+import matplotlib.pyplot as plt
 
 # ==============================
 # 1️⃣ Setup
@@ -34,7 +36,7 @@ for name, path in paths.items():
     df = pd.read_csv(path, header=None)
     df.replace('?', np.nan, inplace=True)
     
-    # ✅ Impute missing numeric values with median instead of dropping
+    # ✅ Median imputation
     imputer = SimpleImputer(strategy="median")
     df = pd.DataFrame(imputer.fit_transform(df))
     
@@ -47,12 +49,11 @@ for name, path in paths.items():
     clients_data[name] = (X, y)
     print(f"Loaded {name} dataset with {len(y)} samples.")
 
-# Ensure at least 2 datasets exist
 if len(clients_data) < 2:
     raise ValueError("Not enough valid datasets for federated training!")
 
 # ==============================
-# 3️⃣ Scale data + create global test set
+# 3️⃣ Scaling and Global Test Set
 # ==============================
 for key in clients_data:
     X, y = clients_data[key]
@@ -64,25 +65,19 @@ X_train_clients, y_train_clients = [], []
 X_test_global, y_test_global = [], []
 
 for key, (X, y) in clients_data.items():
-    if len(y) >= 10:
-        X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=0.2, random_state=SEED, stratify=y
-        )
-    else:
-        # Small dataset → all samples go to training
-        X_train, y_train = X, y
-        X_test, y_test = np.empty((0, X.shape[1])), np.empty((0,))
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, random_state=SEED, stratify=y
+    )
     X_train_clients.append(X_train)
     y_train_clients.append(y_train)
     X_test_global.append(X_test)
     y_test_global.append(y_test)
 
-# Combine all global test data
-X_test_global = np.concatenate(X_test_global) if any(len(x) for x in X_test_global) else np.empty((0,))
-y_test_global = np.concatenate(y_test_global) if any(len(y) for y in y_test_global) else np.empty((0,))
+X_test_global = np.concatenate(X_test_global)
+y_test_global = np.concatenate(y_test_global)
 
 # ==============================
-# 4️⃣ Dataset + Model Definitions
+# 4️⃣ Model Definition
 # ==============================
 class SimpleDataset(torch.utils.data.Dataset):
     def __init__(self, X, y):
@@ -108,7 +103,7 @@ class MLP(nn.Module):
         return self.net(x)
 
 # ==============================
-# 5️⃣ Federated Utils
+# 5️⃣ Federated Functions
 # ==============================
 def get_model_params(model):
     return {k: v.cpu().detach().clone() for k, v in model.state_dict().items()}
@@ -140,12 +135,12 @@ def local_train(model, dataloader, epochs=3, lr=1e-3):
     return model
 
 # ==============================
-# 6️⃣ Federated Training
+# 6️⃣ Federated Training (50 rounds)
 # ==============================
 input_dim = next(iter(clients_data.values()))[0].shape[1]
 global_model = MLP(input_dim).to(DEVICE)
 
-rounds = 40
+rounds = 50
 local_epochs = 3
 batch_size = 16
 
@@ -157,7 +152,7 @@ for key, (X_train, y_train) in clients_data.items():
     client_loaders.append(loader)
     client_sizes.append(len(ds))
 
-print("\nStarting Federated Training...\n")
+print("\nStarting Federated Training (50 Rounds)...\n")
 
 for r in range(1, rounds + 1):
     local_states = []
@@ -174,28 +169,109 @@ for r in range(1, rounds + 1):
     if r % 5 == 0 or r == 1:
         global_model.eval()
         with torch.no_grad():
-            if len(X_test_global) > 0:
-                Xte = torch.from_numpy(X_test_global).float().to(DEVICE)
-                logits = global_model(Xte)
-                preds = logits.argmax(dim=1).cpu().numpy()
-                acc = accuracy_score(y_test_global, preds)
-                print(f"Round {r:02d} - Global Test Accuracy: {acc:.4f}")
-            else:
-                print(f"Round {r:02d} - (No global test samples available)")
+            Xte = torch.from_numpy(X_test_global).float().to(DEVICE)
+            logits = global_model(Xte)
+            preds = logits.argmax(dim=1).cpu().numpy()
+            acc = accuracy_score(y_test_global, preds)
+            print(f"Round {r:02d} - Global Test Accuracy: {acc:.4f}")
 
 # ==============================
-# 7️⃣ Save Results
+# 7️⃣ Save Federated Results
 # ==============================
 save_path = r"C:\Users\InduS\OneDrive\Desktop\UROP Project\Project-Test-1\HeartDisease\results\federated"
 os.makedirs(save_path, exist_ok=True)
-output_file = os.path.join(save_path, "federated_global_imputed_all_datasets_report.txt")
+output_file = os.path.join(save_path, "federated_global_50rounds_report.txt")
 
 with open(output_file, "w", encoding="utf-8") as f:
-    if len(X_test_global) > 0:
-        f.write(f"Final Global Model Accuracy: {acc:.4f}\n\n")
-        f.write("Classification Report:\n")
-        f.write(classification_report(y_test_global, preds))
-    else:
-        f.write("No global test data available for evaluation.\n")
+    f.write(f"Final Global Model Accuracy: {acc:.4f}\n\n")
+    f.write("Classification Report:\n")
+    f.write(classification_report(y_test_global, preds))
 
 print(f"\n Results saved successfully at: {output_file}")
+
+
+
+# ==============================
+# 8️⃣ SHAP Feature Importance (Federated Global Model)
+# ==============================
+import shap
+import matplotlib.pyplot as plt
+import numpy as np
+
+print("\nStarting SHAP feature importance analysis for Federated Global Model...")
+
+# Move global model to CPU for SHAP
+global_model_cpu = MLP(input_dim)
+set_model_params(global_model_cpu, get_model_params(global_model))
+global_model_cpu.eval()
+
+# Convert test data
+X_sample = torch.tensor(X_test_global).float()
+
+# Use a smaller subset to speed up SHAP computation
+sample_size = min(100, len(X_sample))
+indices = np.random.choice(len(X_sample), size=sample_size, replace=False)
+X_explain = X_sample[indices]
+
+# Initialize SHAP DeepExplainer
+explainer = shap.DeepExplainer(global_model_cpu, X_explain)
+shap_values = explainer.shap_values(X_explain)
+
+# If SHAP returns list for each class, select class 1
+if isinstance(shap_values, list):
+    shap_values = shap_values[1]
+
+# Define feature names (UCI heart dataset)
+feature_names = [
+    "age", "sex", "cp", "trestbps", "chol", "fbs",
+    "restecg", "thalach", "exang", "oldpeak",
+    "slope", "ca", "thal"
+]
+
+# ==============================
+# SHAP Summary Plot
+# ==============================
+plt.figure()
+shap.summary_plot(shap_values, X_explain.detach().numpy(), feature_names=feature_names, show=False)
+summary_path = os.path.join(save_path, "federated_shap_summary_plot.png")
+plt.savefig(summary_path, bbox_inches="tight", dpi=300)
+plt.close()
+print(f"SHAP summary plot saved at: {summary_path}")
+
+# ==============================
+# SHAP Bar Plot
+# ==============================
+plt.figure()
+shap.summary_plot(shap_values, X_explain.detach().numpy(), feature_names=feature_names, plot_type="bar", show=False)
+bar_path = os.path.join(save_path, "federated_shap_bar_plot.png")
+plt.savefig(bar_path, bbox_inches="tight", dpi=300)
+plt.close()
+print(f"SHAP bar plot saved at: {bar_path}")
+
+# # ==============================
+# # Save Top 10 Features as Text (Fixed)
+# # ==============================
+# mean_abs_shap = np.abs(shap_values).mean(axis=0)
+
+# # Flatten to ensure no nested list issues
+# mean_abs_shap = np.array(mean_abs_shap).flatten()
+
+# # Zip with feature names and sort descending
+# feature_importance = sorted(
+#     zip(feature_names, mean_abs_shap),
+#     key=lambda x: float(x[1]),
+#     reverse=True
+# )
+
+# txt_path = os.path.join(save_path, "federated_shap_feature_importance.txt")
+# with open(txt_path, "w", encoding="utf-8") as f:
+#     f.write("Top 10 Most Important Features (Federated Model SHAP)\n")
+#     f.write("============================================\n")
+#     for i, (feat, val) in enumerate(feature_importance[:10], start=1):
+#         f.write(f"{i}. {feat} — {float(val):.4f}\n")
+
+# print(f"SHAP feature importance text file saved at: {txt_path}")
+
+# print("\nTop 10 Most Important Features (Federated Model):")
+# for i, (feat, val) in enumerate(feature_importance[:10], start=1):
+#     print(f"{i}. {feat} — {float(val):.4f}")
