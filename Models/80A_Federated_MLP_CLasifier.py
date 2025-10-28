@@ -25,18 +25,21 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 # 2️⃣ Load & preprocess datasets
 # ==============================
 paths = {
-    "cleveland": "Dataset/processed.cleveland.data",
-    "hungarian": "Dataset/processed.hungarian.data",
-    "switzerland": "Dataset/processed.switzerland.data",
-    "va": "Dataset/processed.va.data"
+    "cleveland": r"C:\Users\InduS\OneDrive\Desktop\UROP Project\Project-Test-1\HeartDisease\Dataset\processed.cleveland.data",
+    "hungarian": r"C:\Users\InduS\OneDrive\Desktop\UROP Project\Project-Test-1\HeartDisease\Dataset\processed.hungarian.data",
+    "switzerland": r"C:\Users\InduS\OneDrive\Desktop\UROP Project\Project-Test-1\HeartDisease\Dataset\processed.switzerland.data",
+    "va": r"C:\Users\InduS\OneDrive\Desktop\UROP Project\Project-Test-1\HeartDisease\Dataset\processed.va.data"
 }
 
 clients_data = {}
 for name, path in paths.items():
+    if not os.path.exists(path):
+        print(f"  Missing file: {path}")
+        continue
+
     df = pd.read_csv(path, header=None)
     df.replace('?', np.nan, inplace=True)
     
-    # ✅ Median imputation
     imputer = SimpleImputer(strategy="median")
     df = pd.DataFrame(imputer.fit_transform(df))
     
@@ -189,89 +192,3 @@ with open(output_file, "w", encoding="utf-8") as f:
 
 print(f"\n Results saved successfully at: {output_file}")
 
-
-
-# ==============================
-# 8️⃣ SHAP Feature Importance (Federated Global Model)
-# ==============================
-import shap
-import matplotlib.pyplot as plt
-import numpy as np
-
-print("\nStarting SHAP feature importance analysis for Federated Global Model...")
-
-# Move global model to CPU for SHAP
-global_model_cpu = MLP(input_dim)
-set_model_params(global_model_cpu, get_model_params(global_model))
-global_model_cpu.eval()
-
-# Convert test data
-X_sample = torch.tensor(X_test_global).float()
-
-# Use a smaller subset to speed up SHAP computation
-sample_size = min(100, len(X_sample))
-indices = np.random.choice(len(X_sample), size=sample_size, replace=False)
-X_explain = X_sample[indices]
-
-# Initialize SHAP DeepExplainer
-explainer = shap.DeepExplainer(global_model_cpu, X_explain)
-shap_values = explainer.shap_values(X_explain)
-
-# If SHAP returns list for each class, select class 1
-if isinstance(shap_values, list):
-    shap_values = shap_values[1]
-
-# Define feature names (UCI heart dataset)
-feature_names = [
-    "age", "sex", "cp", "trestbps", "chol", "fbs",
-    "restecg", "thalach", "exang", "oldpeak",
-    "slope", "ca", "thal"
-]
-
-# ==============================
-# SHAP Summary Plot
-# ==============================
-plt.figure()
-shap.summary_plot(shap_values, X_explain.detach().numpy(), feature_names=feature_names, show=False)
-summary_path = os.path.join(save_path, "federated_shap_summary_plot.png")
-plt.savefig(summary_path, bbox_inches="tight", dpi=300)
-plt.close()
-print(f"SHAP summary plot saved at: {summary_path}")
-
-# ==============================
-# SHAP Bar Plot
-# ==============================
-plt.figure()
-shap.summary_plot(shap_values, X_explain.detach().numpy(), feature_names=feature_names, plot_type="bar", show=False)
-bar_path = os.path.join(save_path, "federated_shap_bar_plot.png")
-plt.savefig(bar_path, bbox_inches="tight", dpi=300)
-plt.close()
-print(f"SHAP bar plot saved at: {bar_path}")
-
-# # ==============================
-# # Save Top 10 Features as Text (Fixed)
-# # ==============================
-# mean_abs_shap = np.abs(shap_values).mean(axis=0)
-
-# # Flatten to ensure no nested list issues
-# mean_abs_shap = np.array(mean_abs_shap).flatten()
-
-# # Zip with feature names and sort descending
-# feature_importance = sorted(
-#     zip(feature_names, mean_abs_shap),
-#     key=lambda x: float(x[1]),
-#     reverse=True
-# )
-
-# txt_path = os.path.join(save_path, "federated_shap_feature_importance.txt")
-# with open(txt_path, "w", encoding="utf-8") as f:
-#     f.write("Top 10 Most Important Features (Federated Model SHAP)\n")
-#     f.write("============================================\n")
-#     for i, (feat, val) in enumerate(feature_importance[:10], start=1):
-#         f.write(f"{i}. {feat} — {float(val):.4f}\n")
-
-# print(f"SHAP feature importance text file saved at: {txt_path}")
-
-# print("\nTop 10 Most Important Features (Federated Model):")
-# for i, (feat, val) in enumerate(feature_importance[:10], start=1):
-#     print(f"{i}. {feat} — {float(val):.4f}")
