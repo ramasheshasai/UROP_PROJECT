@@ -111,3 +111,68 @@ with open(output_path, "w", encoding="utf-8") as f:
     f.write(report)
 
 print(f"\nResults saved successfully at: {output_path}")
+
+# ==============================
+# 8️⃣ SHAP Feature Importance Analysis (on Gradient Boosting)
+# ==============================
+import shap
+import matplotlib.pyplot as plt
+
+# Path where results will be stored
+folder_path = r"C:\Users\InduS\OneDrive\Desktop\UROP Project\Project-Test-1\HeartDisease\results\centralised"
+os.makedirs(folder_path, exist_ok=True)
+
+print("\nStarting SHAP feature importance analysis...")
+
+# Select and fit Gradient Boosting model
+gb_model = [m for n, m in base_models if n == 'gb'][0]
+gb_model.fit(X_train, y_train)
+
+# Create SHAP explainer and compute values (disable additivity check to avoid error)
+explainer = shap.Explainer(gb_model, X_train)
+shap_values = explainer(X_test, check_additivity=False)
+
+# Define feature names (UCI Heart Disease dataset)
+feature_names = [
+    "age", "sex", "cp", "trestbps", "chol", "fbs",
+    "restecg", "thalach", "exang", "oldpeak",
+    "slope", "ca", "thal"
+]
+
+# ==============================
+# Save SHAP Summary Plot (Dot Plot)
+# ==============================
+plt.figure()
+shap.summary_plot(shap_values, features=X_test, feature_names=feature_names, show=False)
+summary_path = os.path.join(folder_path, "shap_summary_plot.png")
+plt.savefig(summary_path, bbox_inches="tight", dpi=300)
+plt.close()
+print(f" SHAP summary plot saved at: {summary_path}")
+
+# ==============================
+# Save SHAP Bar Plot (Global Importance)
+# ==============================
+plt.figure()
+shap.summary_plot(shap_values, features=X_test, feature_names=feature_names, plot_type="bar", show=False)
+bar_path = os.path.join(folder_path, "shap_bar_plot.png")
+plt.savefig(bar_path, bbox_inches="tight", dpi=300)
+plt.close()
+print(f" SHAP bar plot saved at: {bar_path}")
+
+# ==============================
+# Save Top 10 Features as Text
+# ==============================
+# Get mean absolute SHAP values per feature
+shap_mean = np.abs(shap_values.values).mean(axis=0)
+feature_importance = sorted(zip(feature_names, shap_mean), key=lambda x: x[1], reverse=True)
+
+# Save top 10 features to file
+txt_path = os.path.join(folder_path, "shap_feature_importance.txt")
+with open(txt_path, "w", encoding="utf-8") as f:
+    f.write("Top 10 Most Important Features (Based on SHAP values)\n")
+    f.write("============================================\n")
+    for i, (feat, val) in enumerate(feature_importance[:10], start=1):
+        f.write(f"{i}. {feat} — {val:.4f}\n")
+
+print(f" SHAP feature importance text file saved at: {txt_path}")
+print("\nSHAP feature analysis completed successfully!")

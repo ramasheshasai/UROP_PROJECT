@@ -1,0 +1,12 @@
+Top 10 Most Important Features (Based on SHAP values)
+============================================
+1. ca — 2.2799
+2. cp — 1.8015
+3. thal — 1.6494
+4. oldpeak — 1.2832
+5. age — 1.1147
+6. thalach — 1.0907
+7. sex — 1.0767
+8. slope — 1.0406
+9. exang — 0.8237
+10. chol — 0.7551
