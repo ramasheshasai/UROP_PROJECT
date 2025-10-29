@@ -12,12 +12,13 @@ import os
 # 1️⃣ Load & merge all 4 datasets (with safety check)
 # ==============================
 files = [
-    "Dataset/processed.cleveland.data",
-    "Dataset/processed.hungarian.data",
-    "Dataset/processed.switzerland.data",
-    "Dataset/processed.va.data"
+    r"C:\Users\InduS\OneDrive\Desktop\UROP Project\Project-Test-1\HeartDisease\Dataset\processed.cleveland.data",
+    r"C:\Users\InduS\OneDrive\Desktop\UROP Project\Project-Test-1\HeartDisease\Dataset\processed.hungarian.data",
+    r"C:\Users\InduS\OneDrive\Desktop\UROP Project\Project-Test-1\HeartDisease\Dataset\processed.switzerland.data",
+    r"C:\Users\InduS\OneDrive\Desktop\UROP Project\Project-Test-1\HeartDisease\Dataset\processed.va.data"
 ]
 
+# Preprocessing the datasets with safety checks
 df_list = []
 for file in files:
     temp = pd.read_csv(file, header=None)
@@ -33,8 +34,8 @@ df = pd.concat(df_list, ignore_index=True)
 # ==============================
 # 2️⃣ Preprocess data
 # ==============================
-X = df.iloc[:, :-1].values
-y = (df.iloc[:, -1] > 0).astype(int).values  # binary 0/1
+X = df.iloc[:, :-1].values  # Features
+y = (df.iloc[:, -1] > 0).astype(int).values  # Binary target (0/1)
 
 scaler = StandardScaler()
 X_scaled = scaler.fit_transform(X)
@@ -90,26 +91,39 @@ meta_model = RidgeClassifier(alpha=0.5)
 meta_model.fit(train_meta, y_train)
 stack_pred = meta_model.predict(test_meta)
 
+# ✅ Extract Ridge model weights
+weights = meta_model.coef_.flatten()
+print("\nRidge Classifier Weights for Base Models:")
+for name, weight in zip([n for n, _ in base_models], weights):
+    print(f"{name}: {weight:.4f}")
+
+# ✅ Save Ridge weights to text file
+folder_path = r"C:\Users\InduS\OneDrive\Desktop\UROP Project\Project-Test-1\HeartDisease\results\centralised"
+os.makedirs(folder_path, exist_ok=True)
+weights_path = os.path.join(folder_path, "ridge_model_weights.txt")
+with open(weights_path, "w", encoding="utf-8") as f:
+    f.write("Base Model Weights (Ridge Classifier)\n")
+    f.write("====================================\n")
+    for name, weight in zip([n for n, _ in base_models], weights):
+        f.write(f"{name}: {weight:.4f}\n")
+print(f"\nRidge classifier weights saved at: {weights_path}")
+
 # ==============================
 # 6️⃣ Evaluate results
 # ==============================
 acc = accuracy_score(y_test, stack_pred)
 report = classification_report(y_test, stack_pred)
 
-print("Power Boost Ensemble Accuracy:", acc)
+print("\nPower Boost Ensemble Accuracy:", acc)
 print("\nClassification Report:\n", report)
 
 # ==============================
 # 7️⃣ Save results
 # ==============================
-folder_path = r"C:\Users\InduS\OneDrive\Desktop\UROP Project\Project-Test-1\HeartDisease\results\centralised"
-os.makedirs(folder_path, exist_ok=True)
-
 output_path = os.path.join(folder_path, "power_ensemble_report.txt")
 with open(output_path, "w", encoding="utf-8") as f:
     f.write(f"Power Boost Ensemble Accuracy: {acc}\n\n")
     f.write(report)
-
 print(f"\nResults saved successfully at: {output_path}")
 
 # ==============================
@@ -118,17 +132,13 @@ print(f"\nResults saved successfully at: {output_path}")
 import shap
 import matplotlib.pyplot as plt
 
-# Path where results will be stored
-folder_path = r"C:\Users\InduS\OneDrive\Desktop\UROP Project\Project-Test-1\HeartDisease\results\centralised"
-os.makedirs(folder_path, exist_ok=True)
-
 print("\nStarting SHAP feature importance analysis...")
 
 # Select and fit Gradient Boosting model
 gb_model = [m for n, m in base_models if n == 'gb'][0]
 gb_model.fit(X_train, y_train)
 
-# Create SHAP explainer and compute values (disable additivity check to avoid error)
+# Create SHAP explainer and compute values (disable additivity check)
 explainer = shap.Explainer(gb_model, X_train)
 shap_values = explainer(X_test, check_additivity=False)
 
@@ -162,11 +172,9 @@ print(f" SHAP bar plot saved at: {bar_path}")
 # ==============================
 # Save Top 10 Features as Text
 # ==============================
-# Get mean absolute SHAP values per feature
 shap_mean = np.abs(shap_values.values).mean(axis=0)
 feature_importance = sorted(zip(feature_names, shap_mean), key=lambda x: x[1], reverse=True)
 
-# Save top 10 features to file
 txt_path = os.path.join(folder_path, "shap_feature_importance.txt")
 with open(txt_path, "w", encoding="utf-8") as f:
     f.write("Top 10 Most Important Features (Based on SHAP values)\n")

@@ -1,0 +1,6 @@
+Base Model Weights (Ridge Classifier)
+====================================
+rf: 0.7280
+et: 0.2222
+gb: -0.1004
+lr: 0.6197
