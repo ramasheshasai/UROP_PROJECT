@@ -3,7 +3,10 @@ import random
 import numpy as np
 import pandas as pd
 from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import accuracy_score, classification_report
+from sklearn.metrics import (
+    accuracy_score, classification_report, confusion_matrix,
+    ConfusionMatrixDisplay, roc_curve, auc
+)
 from sklearn.model_selection import train_test_split
 from sklearn.impute import SimpleImputer
 import torch
@@ -33,31 +36,16 @@ paths = {
 
 clients_data = {}
 for name, path in paths.items():
-    if not os.path.exists(path):
-        print(f"  Missing file: {path}")
-        continue
-
     df = pd.read_csv(path, header=None)
     df.replace('?', np.nan, inplace=True)
-    
     imputer = SimpleImputer(strategy="median")
     df = pd.DataFrame(imputer.fit_transform(df))
-    
     if len(df) < 5:
-        print(f"Skipping {name}: only {len(df)} usable rows.")
         continue
-    
     X = df.iloc[:, :-1].values
     y = (df.iloc[:, -1] > 0).astype(int).values
     clients_data[name] = (X, y)
-    print(f"Loaded {name} dataset with {len(y)} samples.")
 
-if len(clients_data) < 2:
-    raise ValueError("Not enough valid datasets for federated training!")
-
-# ==============================
-# 3️⃣ Scaling and Global Test Set
-# ==============================
 for key in clients_data:
     X, y = clients_data[key]
     scaler = StandardScaler()
@@ -80,7 +68,7 @@ X_test_global = np.concatenate(X_test_global)
 y_test_global = np.concatenate(y_test_global)
 
 # ==============================
-# 4️⃣ Model Definition
+# 3️⃣ Model Definition
 # ==============================
 class SimpleDataset(torch.utils.data.Dataset):
     def __init__(self, X, y):
@@ -106,7 +94,7 @@ class MLP(nn.Module):
         return self.net(x)
 
 # ==============================
-# 5️⃣ Federated Functions
+# 4️⃣ Federated Functions
 # ==============================
 def get_model_params(model):
     return {k: v.cpu().detach().clone() for k, v in model.state_dict().items()}
@@ -138,7 +126,7 @@ def local_train(model, dataloader, epochs=3, lr=1e-3):
     return model
 
 # ==============================
-# 6️⃣ Federated Training (50 rounds)
+# 5️⃣ Federated Training (50 rounds)
 # ==============================
 input_dim = next(iter(clients_data.values()))[0].shape[1]
 global_model = MLP(input_dim).to(DEVICE)
@@ -155,11 +143,9 @@ for key, (X_train, y_train) in clients_data.items():
     client_loaders.append(loader)
     client_sizes.append(len(ds))
 
-print("\nStarting Federated Training (50 Rounds)...\n")
-
 for r in range(1, rounds + 1):
     local_states = []
-    for i, loader in enumerate(client_loaders):
+    for loader in client_loaders:
         local_model = MLP(input_dim).to(DEVICE)
         set_model_params(local_model, get_model_params(global_model))
         local_model = local_train(local_model, loader, epochs=local_epochs, lr=1e-3)
@@ -169,26 +155,77 @@ for r in range(1, rounds + 1):
     avg_state = average_models(local_states, weights=weights)
     set_model_params(global_model, avg_state)
 
-    if r % 5 == 0 or r == 1:
-        global_model.eval()
-        with torch.no_grad():
-            Xte = torch.from_numpy(X_test_global).float().to(DEVICE)
-            logits = global_model(Xte)
-            preds = logits.argmax(dim=1).cpu().numpy()
-            acc = accuracy_score(y_test_global, preds)
-            print(f"Round {r:02d} - Global Test Accuracy: {acc:.4f}")
+# ==============================
+# 6️⃣ Evaluation
+# ==============================
+global_model.eval()
+with torch.no_grad():
+    Xte = torch.from_numpy(X_test_global).float().to(DEVICE)
+    logits = global_model(Xte)
+    preds = logits.argmax(dim=1).cpu().numpy()
+    probs = torch.softmax(logits, dim=1)[:, 1].cpu().numpy()
+    acc = accuracy_score(y_test_global, preds)
+    report = classification_report(y_test_global, preds)
+print(f"\nFinal Global Accuracy: {acc:.4f}")
 
 # ==============================
-# 7️⃣ Save Federated Results
+# 7️⃣ Confusion Matrix + ROC-AUC
 # ==============================
+cm = confusion_matrix(y_test_global, preds)
+plt.figure(figsize=(5, 4))
+ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=["No Disease", "Disease"]).plot(cmap="Blues", values_format="d")
+plt.title("Federated Confusion Matrix")
 save_path = r"C:\Users\InduS\OneDrive\Desktop\UROP Project\Project-Test-1\HeartDisease\results\federated"
 os.makedirs(save_path, exist_ok=True)
-output_file = os.path.join(save_path, "federated_global_50rounds_report.txt")
+plt.savefig(os.path.join(save_path, "federated_confusion_matrix.png"), bbox_inches="tight", dpi=300)
+plt.close()
 
-with open(output_file, "w", encoding="utf-8") as f:
-    f.write(f"Final Global Model Accuracy: {acc:.4f}\n\n")
-    f.write("Classification Report:\n")
-    f.write(classification_report(y_test_global, preds))
+fpr, tpr, _ = roc_curve(y_test_global, probs)
+roc_auc = auc(fpr, tpr)
+plt.figure()
+plt.plot(fpr, tpr, label=f"AUC = {roc_auc:.3f}")
+plt.plot([0, 1], [0, 1], linestyle="--", color="gray")
+plt.title("ROC Curve - Federated Model")
+plt.xlabel("False Positive Rate")
+plt.ylabel("True Positive Rate")
+plt.legend()
+plt.savefig(os.path.join(save_path, "federated_roc_auc.png"), bbox_inches="tight", dpi=300)
+plt.close()
 
-print(f"\n Results saved successfully at: {output_file}")
+# ==============================
+# 8️⃣ Loss Function Comparison
+# ==============================
+# (Use global model outputs)
+y_true_tensor = torch.tensor(y_test_global).float()
+y_pred_probs_tensor = torch.tensor(probs)
 
+# Binary Cross-Entropy
+bce_loss = nn.BCELoss()(y_pred_probs_tensor, y_true_tensor).item()
+# Hinge Loss (margin = 1)
+hinge_loss = torch.mean(torch.clamp(1 - (2 * y_true_tensor - 1) * (2 * y_pred_probs_tensor - 1), min=0)).item()
+# Cross Entropy (already used internally)
+ce_loss = nn.CrossEntropyLoss()(logits.cpu(), torch.tensor(y_test_global)).item()
+
+loss_output = f"""
+Loss Function Results (Federated)
+=================================
+Cross Entropy Loss: {ce_loss:.4f}
+Binary Cross-Entropy Loss: {bce_loss:.4f}
+Hinge Loss: {hinge_loss:.4f}
+"""
+
+print(loss_output)
+
+with open(os.path.join(save_path, "federated_loss_results.txt"), "w") as f:
+    f.write(loss_output)
+
+# ==============================
+# 9️⃣ Save Text Report
+# ==============================
+with open(os.path.join(save_path, "federated_final_report.txt"), "w") as f:
+    f.write(f"Final Global Accuracy: {acc:.4f}\n")
+    f.write(f"ROC-AUC: {roc_auc:.4f}\n\n")
+    f.write(report)
+    f.write(loss_output)
+
+print(f"\nResults saved successfully in: {save_path}")

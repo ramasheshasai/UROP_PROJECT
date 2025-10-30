@@ -1,0 +1,6 @@
+
+Loss Function Results (Federated)
+=================================
+Cross Entropy Loss: 0.4185
+Binary Cross-Entropy Loss: 0.4185
+Hinge Loss: 0.4874

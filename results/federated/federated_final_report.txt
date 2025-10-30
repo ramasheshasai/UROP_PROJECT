@@ -1,0 +1,17 @@
+Final Global Accuracy: 0.8054
+ROC-AUC: 0.9009
+
+              precision    recall  f1-score   support
+
+           0       0.83      0.71      0.77        83
+           1       0.79      0.88      0.83       102
+
+    accuracy                           0.81       185
+   macro avg       0.81      0.80      0.80       185
+weighted avg       0.81      0.81      0.80       185
+
+Loss Function Results (Federated)
+=================================
+Cross Entropy Loss: 0.4185
+Binary Cross-Entropy Loss: 0.4185
+Hinge Loss: 0.4874
