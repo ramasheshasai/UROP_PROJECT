@@ -6,6 +6,9 @@ from sklearn.linear_model import LogisticRegression, RidgeClassifier
 from sklearn.ensemble import RandomForestClassifier, ExtraTreesClassifier, GradientBoostingClassifier
 from sklearn.metrics import accuracy_score, classification_report
 from sklearn.utils import shuffle
+import matplotlib.pyplot as plt
+from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
+
 import os
 
 # ==============================
@@ -114,6 +117,19 @@ print(f"\nRidge classifier weights saved at: {weights_path}")
 acc = accuracy_score(y_test, stack_pred)
 report = classification_report(y_test, stack_pred)
 
+# Compute confusion matrix
+cm = confusion_matrix(y_test, stack_pred)
+print("\nConfusion Matrix:\n", cm)
+
+# Plot and save confusion matrix
+plt.figure(figsize=(5, 4))
+disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=["No Disease (0)", "Disease (1)"])
+disp.plot(cmap='Blues', values_format='d')
+plt.title("Confusion Matrix - Centralized Stacking Ensemble")
+plt.savefig(os.path.join(folder_path, "confusion_matrix.png"), bbox_inches="tight", dpi=300)
+plt.close()
+
+print(f"Confusion matrix saved at: {os.path.join(folder_path, 'confusion_matrix.png')}")
 print("\nPower Boost Ensemble Accuracy:", acc)
 print("\nClassification Report:\n", report)
 
