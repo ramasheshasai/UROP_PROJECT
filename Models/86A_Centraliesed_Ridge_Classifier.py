@@ -68,7 +68,7 @@ base_models = [
 # ==============================
 # 4️⃣ Stacking using K-Fold
 # ==============================
-kf = KFold(n_splits=5, shuffle=True, random_state=42)
+kf = KFold(n_splits=10, shuffle=True, random_state=42)
 train_meta = np.zeros((X_train.shape[0], len(base_models)))
 test_meta = np.zeros((X_test.shape[0], len(base_models)))
 
