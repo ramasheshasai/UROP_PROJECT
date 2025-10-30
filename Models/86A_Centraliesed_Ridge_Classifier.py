@@ -9,7 +9,6 @@ from sklearn.utils import shuffle
 from sklearn.metrics import roc_auc_score, roc_curve
 import matplotlib.pyplot as plt
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
-
 import os
 
 # ==============================
@@ -151,6 +150,68 @@ print(f"ROC curve saved at: {os.path.join(folder_path, 'roc_curve.png')}")
 print(f"Confusion matrix saved at: {os.path.join(folder_path, 'confusion_matrix.png')}")
 print("\nPower Boost Ensemble Accuracy:", acc)
 print("\nClassification Report:\n", report)
+
+
+# ==============================
+# LOSS FUNCTION DEFINITIONS
+# ==============================
+
+def ridge_loss(y_true, y_pred, weights, alpha=0.5):
+    """Ridge Regression Loss = MSE + L2 regularization"""
+    mse = np.mean((y_true - y_pred) ** 2)
+    l2 = alpha * np.sum(weights ** 2)
+    return mse + l2
+
+def binary_cross_entropy(y_true, y_prob):
+    """Binary Cross Entropy Loss"""
+    y_prob = np.clip(y_prob, 1e-9, 1 - 1e-9)
+    bce = -np.mean(y_true * np.log(y_prob) + (1 - y_true) * np.log(1 - y_prob))
+    return bce
+
+def hinge_loss(y_true, y_pred):
+    """Hinge Loss (for margin-based classifiers like SVM)"""
+    y_true = np.where(y_true == 0, -1, 1)
+    return np.mean(np.maximum(0, 1 - y_true * y_pred))
+
+# ==============================
+# COMPUTE PREDICTIONS & LOSSES
+# ==============================
+
+# Ridge classifier predictions
+y_pred_class = stack_pred  # Predicted class (0/1)
+y_pred_prob = np.clip(meta_model.decision_function(test_meta), -10, 10)  # raw decision scores
+
+# Convert to probability (for BCE)
+prob = 1 / (1 + np.exp(-y_pred_prob))  
+
+ridge_w = meta_model.coef_.flatten()
+
+ridge_l = ridge_loss(y_test, y_pred_class, ridge_w, alpha=0.5)
+bce_l = binary_cross_entropy(y_test, prob)
+hinge_l = hinge_loss(y_test, y_pred_prob)
+
+# ==============================
+# PRINT LOSS VALUES
+# ==============================
+print("\n--- LOSS FUNCTION VALUES ---")
+print(f"Ridge Loss: {ridge_l:.4f}")
+print(f"Binary Cross-Entropy Loss: {bce_l:.4f}")
+print(f"Hinge Loss: {hinge_l:.4f}")
+
+# ==============================
+# SAVE TO FILE
+# ==============================
+loss_path = os.path.join(folder_path, "loss_values.txt")
+with open(loss_path, "w", encoding="utf-8") as f:
+    f.write("Loss Function Results\n")
+    f.write("=====================\n")
+    f.write(f"Ridge Loss: {ridge_l:.4f}\n")
+    f.write(f"Binary Cross-Entropy Loss: {bce_l:.4f}\n")
+    f.write(f"Hinge Loss: {hinge_l:.4f}\n")
+
+print(f"\nLoss values saved successfully at: {loss_path}")
+
+
 
 # ==============================
 # 7️⃣ Save results

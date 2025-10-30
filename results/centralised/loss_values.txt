@@ -1,0 +1,5 @@
+Loss Function Results
+=====================
+Ridge Loss: 0.6240
+Binary Cross-Entropy Loss: 0.4834
+Hinge Loss: 0.4635
