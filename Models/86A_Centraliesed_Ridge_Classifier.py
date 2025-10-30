@@ -6,6 +6,7 @@ from sklearn.linear_model import LogisticRegression, RidgeClassifier
 from sklearn.ensemble import RandomForestClassifier, ExtraTreesClassifier, GradientBoostingClassifier
 from sklearn.metrics import accuracy_score, classification_report
 from sklearn.utils import shuffle
+from sklearn.metrics import roc_auc_score, roc_curve
 import matplotlib.pyplot as plt
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 
@@ -129,6 +130,24 @@ plt.title("Confusion Matrix - Centralized Stacking Ensemble")
 plt.savefig(os.path.join(folder_path, "confusion_matrix.png"), bbox_inches="tight", dpi=300)
 plt.close()
 
+
+# Compute AUC
+y_prob = meta_model.decision_function(test_meta)  # RidgeClassifier gives decision scores
+auc = roc_auc_score(y_test, y_prob)
+print(f"\nAUC Score: {auc:.4f}")
+
+# Plot ROC Curve
+fpr, tpr, thresholds = roc_curve(y_test, y_prob)
+plt.figure(figsize=(5, 4))
+plt.plot(fpr, tpr, label=f'ROC Curve (AUC = {auc:.4f})')
+plt.plot([0, 1], [0, 1], 'k--')
+plt.xlabel("False Positive Rate")
+plt.ylabel("True Positive Rate")
+plt.title("ROC Curve - Centralized Stacking Ensemble")
+plt.legend(loc="lower right")
+plt.savefig(os.path.join(folder_path, "roc_curve.png"), bbox_inches="tight", dpi=300)
+plt.close()
+print(f"ROC curve saved at: {os.path.join(folder_path, 'roc_curve.png')}")
 print(f"Confusion matrix saved at: {os.path.join(folder_path, 'confusion_matrix.png')}")
 print("\nPower Boost Ensemble Accuracy:", acc)
 print("\nClassification Report:\n", report)
